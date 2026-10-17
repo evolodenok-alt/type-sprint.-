@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Type Sprint</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: #0f2a4a; color: #fff;
+         display: flex; justify-content: center; min-height: 100vh; }
+  #app { width: 100%; max-width: 520px; padding: 16px; }
+  h1 { text-align: center; color: #ffe600; margin: 8px 0 16px; }
+  .track { background: #1b3d66; border-radius: 12px; padding: 10px; margin-bottom: 12px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 14px; }
+  .name { width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar { flex: 1; height: 16px; background: #0f2a4a; border-radius: 8px; overflow: hidden; }
+  .fill { height: 100%; width: 0; background: #3ddc3d; transition: width .1s linear; }
+  .bot .fill { background: #ff9f1c; }
+  .me .name { color: #ffe600; font-weight: bold; }
+  .pct { width: 40px; text-align: right; }
+  #text { background: #162f52; border-radius: 12px; padding: 14px; font-size: 20px;
+          line-height: 1.6; min-height: 120px; user-select: none; word-break: break-word; }
+  .ok { color: #3ddc3d; }
+  .bad { color: #fff; background: #e63946; border-radius: 3px; }
+  .cur { border-bottom: 2px solid #ffe600; }
+  #input { width: 100%; margin-top: 12px; padding: 14px; font-size: 18px; border-radius: 10px;
+           border: 2px solid #3a6ea5; background: #fff; color: #000; }
+  #info { text-align: center; margin: 10px 0; font-size: 18px; min-height: 28px; }
+  button { display: block; margin: 12px auto 0; padding: 14px 30px; font-size: 18px; font-weight: bold;
+           color: #fff; background: #e6004c; border: 0; border-radius: 10px; cursor: pointer; }
+  #result { text-align: center; font-size: 22px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>Type Sprint</h1>
+  <div class="track" id="track"></div>
+  <div id="info">Нажми «Старт»</div>
+  <div id="text"></div>
+  <input id="input" placeholder="Печатай здесь..." autocomplete="off" autocorrect="off"
+         autocapitalize="off" spellcheck="false" disabled>
+  <div id="result"></div>
+  <button id="startBtn">Старт</button>
+</div>
+
+<script>
+const TEXTS = [
+  "Быстрые пальцы всегда побеждают в гонке слов, главное не торопиться и не делать ошибок.",
+  "Утром я выпил чашку горячего кофе и сел писать код, а за окном медленно шёл снег.",
+  "Кто рано встаёт, тому бог подаёт, а кто быстро печатает, тот приходит к финишу первым.",
+  "Маленький робот учился читать книги и каждый день узнавал что-то новое о нашем мире.",
+  "Лето пролетело незаметно, и вот уже на улице золотая осень, а мы всё ещё играем."
+];
+
+const BOTS = [
+  { name: "Алекс",  cps: 3.4 },
+  { name: "Мика",   cps: 4.2 },
+  { name: "Дима",   cps: 5.0 },
+  { name: "Соня",   cps: 5.8 }
+];
+
+const $ = id => document.getElementById(id);
+const trackEl = $("track"), textEl = $("text"), inputEl = $("input");
+const infoEl = $("info"), resultEl = $("result"), startBtn = $("startBtn");
+
+let text = "", players = [], timer = null, startTime = 0, running = false, finishOrder = [];
+
+function buildTrack() {
+  trackEl.innerHTML = "";
+  players.forEach((p, i) => {
+    const row = document.createElement("div");
+    row.className = "row " + (p.isMe ? "me" : "bot");
+    row.innerHTML = `<span class="name">${p.name}</span>
+      <div class="bar"><div class="fill" id="f${i}"></div></div>
+      <span class="pct" id="p${i}">0%</span>`;
+    trackEl.appendChild(row);
+  });
+}
+
+function setProgress(i, pct) {
+  pct = Math.min(100, pct);
+  $("f" + i).style.width = pct + "%";
+  $("p" + i).textContent = Math.floor(pct) + "%";
+}
+
+function renderText(typed) {
+  let correct = 0;
+  while (correct < typed.length && typed[correct] === text[correct]) correct++;
+  let html = "";
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i] === " " ? "&nbsp;" : text[i];
+    let cls = "";
+    if (i < correct) cls = "ok";
+    else if (i < typed.length) cls = "bad";
+    else if (i === typed.length) cls = "cur";
+    html += `<span class="${cls}">${ch}</span>`;
+  }
+  textEl.innerHTML = html;
+  return correct;
+}
+
+function startGame() {
+  text = TEXTS[Math.floor(Math.random() * TEXTS.length)];
+  players = [{ name: "Ты", isMe: true, progress: 0, done: false },
+    ...BOTS.map(b => ({
+      name: b.name, isMe: false, progress: 0, done: false,
+      cps: b.cps * (0.85 + Math.random() * 0.3)
+    }))];
+  finishOrder = [];
+  resultEl.textContent = "";
+  buildTrack();
+  renderText("");
+  inputEl.value = "";
+  inputEl.disabled = true;
+  startBtn.style.display = "none";
+  clearInterval(timer);
+
+  let count = 3;
+  infoEl.textContent = count;
+  const cd = setInterval(() => {
+    count--;
+    if (count > 0) { infoEl.textContent = count; return; }
+    clearInterval(cd);
+    infoEl.textContent = "ПИШИ!";
+    inputEl.disabled = false;
+    inputEl.focus();
+    running = true;
+    startTime = performance.now();
+    timer = setInterval(tick, 100);
+  }, 1000);
+}
+
+function tick() {
+  const t = (performance.now() - startTime) / 1000;
+  players.forEach((p, i) => {
+    if (p.isMe || p.done) return;
+    // скорость бота слегка «плавает», как у живого человека
+    p.progress += (p.cps * (0.7 + Math.random() * 0.6) * 0.1) / text.length * 100;
+    if (p.progress >= 100) finish(p, i);
+    else setProgress(i, p.progress);
+  });
+  const me = players[0];
+  if (!me.done) infoEl.textContent = Math.floor(t) + " сек";
+}
+
+function finish(p, i) {
+  p.done = true;
+  p.progress = 100;
+  setProgress(i, 100);
+  finishOrder.push(p);
+  if (p.isMe) endGame();
+}
+
+function endGame() {
+  running = false;
+  clearInterval(timer);
+  inputEl.disabled = true;
+  const t = (performance.now() - startTime) / 1000;
+  const place = finishOrder.indexOf(players[0]) + 1;
+  const wpm = Math.round((text.length / 5) / (t / 60));
+  const medal = ["🥇", "🥈", "🥉"][place - 1] || "😅";
+  resultEl.innerHTML = `${medal} Ты занял ${place} место из ${players.length}<br>
+    Скорость: ${wpm} сл/мин, время: ${t.toFixed(1)} сек`;
+  infoEl.textContent = "Финиш!";
+  startBtn.textContent = "Играть снова";
+  startBtn.style.display = "block";
+}
+
+inputEl.addEventListener("input", () => {
+  if (!running) return;
+  const correct = renderText(inputEl.value);
+  const pct = correct / text.length * 100;
+  players[0].progress = pct;
+  setProgress(0, pct);
+  if (correct === text.length) finish(players[0], 0);
+});
+
+startBtn.addEventListener("click", startGame);
+</script>
+</body>
+</html>
