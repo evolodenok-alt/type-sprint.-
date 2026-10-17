@@ -3,19 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Type Sprint</title>
+<title>Type Sprint Online</title>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; font-family: system-ui, sans-serif; background: #0f2a4a; color: #fff;
          display: flex; justify-content: center; min-height: 100vh; }
   #app { width: 100%; max-width: 520px; padding: 16px; }
   h1 { text-align: center; color: #ffe600; margin: 8px 0 16px; }
-  .track { background: #1b3d66; border-radius: 12px; padding: 10px; margin-bottom: 12px; }
+  .hidden { display: none !important; }
+  .card { background: #1b3d66; border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  input[type=text] { width: 100%; padding: 14px; font-size: 18px; border-radius: 10px;
+         border: 2px solid #3a6ea5; background: #fff; color: #000; margin: 6px 0; }
+  button { display: block; width: 100%; margin: 8px 0; padding: 14px; font-size: 18px; font-weight: bold;
+           color: #fff; background: #e6004c; border: 0; border-radius: 10px; cursor: pointer; }
+  button.alt { background: #2a7de1; }
   .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 14px; }
   .name { width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bar { flex: 1; height: 16px; background: #0f2a4a; border-radius: 8px; overflow: hidden; }
-  .fill { height: 100%; width: 0; background: #3ddc3d; transition: width .1s linear; }
+  .fill { height: 100%; background: #3ddc3d; transition: width .1s linear; }
   .bot .fill { background: #ff9f1c; }
+  .friend .fill { background: #35b6ff; }
   .me .name { color: #ffe600; font-weight: bold; }
   .pct { width: 40px; text-align: right; }
   #text { background: #162f52; border-radius: 12px; padding: 14px; font-size: 20px;
@@ -23,24 +31,42 @@
   .ok { color: #3ddc3d; }
   .bad { color: #fff; background: #e63946; border-radius: 3px; }
   .cur { border-bottom: 2px solid #ffe600; }
-  #input { width: 100%; margin-top: 12px; padding: 14px; font-size: 18px; border-radius: 10px;
-           border: 2px solid #3a6ea5; background: #fff; color: #000; }
-  #info { text-align: center; margin: 10px 0; font-size: 18px; min-height: 28px; }
-  button { display: block; margin: 12px auto 0; padding: 14px 30px; font-size: 18px; font-weight: bold;
-           color: #fff; background: #e6004c; border: 0; border-radius: 10px; cursor: pointer; }
+  #info, #status { text-align: center; margin: 10px 0; font-size: 18px; min-height: 26px; }
   #result { text-align: center; font-size: 22px; margin-top: 10px; }
+  #roomCode { font-size: 42px; text-align: center; color: #ffe600; letter-spacing: 6px; font-weight: bold; }
 </style>
 </head>
 <body>
 <div id="app">
-  <h1>Type Sprint</h1>
-  <div class="track" id="track"></div>
-  <div id="info">Нажми «Старт»</div>
-  <div id="text"></div>
-  <input id="input" placeholder="Печатай здесь..." autocomplete="off" autocorrect="off"
-         autocapitalize="off" spellcheck="false" disabled>
-  <div id="result"></div>
-  <button id="startBtn">Старт</button>
+  <h1>Type Sprint Online</h1>
+
+  <div id="lobby">
+    <div class="card" id="connectBox">
+      <input type="text" id="name" placeholder="Твоё имя" maxlength="12">
+      <button id="createBtn">Создать комнату</button>
+      <input type="text" id="code" placeholder="Код комнаты от друга" inputmode="numeric" maxlength="4">
+      <button class="alt" id="joinBtn">Войти по коду</button>
+    </div>
+    <div class="card hidden" id="roomBox">
+      <div>Код комнаты (скажи другу):</div>
+      <div id="roomCode">----</div>
+      <div id="plist"></div>
+      <label id="botsLabel" class="hidden"><input type="checkbox" id="botsChk" checked> Добавить ботов</label>
+      <button id="startBtn" class="hidden">Старт</button>
+      <div id="waitMsg" class="hidden">Ждём, пока хозяин комнаты нажмёт «Старт»...</div>
+    </div>
+    <div id="status"></div>
+  </div>
+
+  <div id="game" class="hidden">
+    <div class="card" id="track"></div>
+    <div id="info"></div>
+    <div id="text"></div>
+    <input type="text" id="input" placeholder="Печатай здесь..." autocomplete="off"
+           autocorrect="off" autocapitalize="off" spellcheck="false" disabled>
+    <div id="result"></div>
+    <button id="againBtn" class="hidden">Играть снова</button>
+  </div>
 </div>
 
 <script>
@@ -51,36 +77,156 @@ const TEXTS = [
   "Маленький робот учился читать книги и каждый день узнавал что-то новое о нашем мире.",
   "Лето пролетело незаметно, и вот уже на улице золотая осень, а мы всё ещё играем."
 ];
-
 const BOTS = [
-  { name: "Алекс",  cps: 3.4 },
-  { name: "Мика",   cps: 4.2 },
-  { name: "Дима",   cps: 5.0 },
-  { name: "Соня",   cps: 5.8 }
+  { name: "Алекс", cps: 3.4 }, { name: "Мика", cps: 4.2 },
+  { name: "Дима", cps: 5.0 },  { name: "Соня", cps: 5.8 }
 ];
 
 const $ = id => document.getElementById(id);
-const trackEl = $("track"), textEl = $("text"), inputEl = $("input");
-const infoEl = $("info"), resultEl = $("result"), startBtn = $("startBtn");
+let peer = null, conns = [], hostConn = null, isHost = false, myId = "";
+let players = [], text = "", go = false, startTime = 0, tickTimer = null, nextG = 1, shown = false;
 
-let text = "", players = [], timer = null, startTime = 0, running = false, finishOrder = [];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const myName = () => ($("name").value.trim() || "Игрок").slice(0, 12);
+const setStatus = s => $("status").textContent = s;
 
-function buildTrack() {
-  trackEl.innerHTML = "";
-  players.forEach((p, i) => {
-    const row = document.createElement("div");
-    row.className = "row " + (p.isMe ? "me" : "bot");
-    row.innerHTML = `<span class="name">${p.name}</span>
-      <div class="bar"><div class="fill" id="f${i}"></div></div>
-      <span class="pct" id="p${i}">0%</span>`;
-    trackEl.appendChild(row);
+/* ---------- Сеть: хост ---------- */
+function createRoom() {
+  if (peer) peer.destroy();
+  isHost = true; myId = "host";
+  const code = String(Math.floor(1000 + Math.random() * 9000));
+  setStatus("Создаём комнату...");
+  peer = new Peer("tsprint-" + code);
+  peer.on("open", () => {
+    players = [{ id: "host", name: myName(), pct: 0 }];
+    showRoom(code);
+    sendLobby();
+  });
+  peer.on("error", e => {
+    if (e.type === "unavailable-id") createRoom();
+    else setStatus("Ошибка: " + e.type);
+  });
+  peer.on("connection", c => {
+    c.on("data", m => hostGot(c, m));
+    c.on("close", () => {
+      conns = conns.filter(x => x !== c);
+      players = players.filter(p => p.id !== c.pid);
+      if (!go) sendLobby();
+    });
   });
 }
 
-function setProgress(i, pct) {
-  pct = Math.min(100, pct);
-  $("f" + i).style.width = pct + "%";
-  $("p" + i).textContent = Math.floor(pct) + "%";
+function hostGot(c, m) {
+  if (m.t === "hello") {
+    if (go) { c.send({ t: "busy" }); return; }
+    c.pid = "g" + (nextG++);
+    conns.push(c);
+    players.push({ id: c.pid, name: String(m.name).slice(0, 12), pct: 0 });
+    c.send({ t: "welcome", id: c.pid });
+    sendLobby();
+  } else if (m.t === "prog") {
+    const p = players.find(x => x.id === c.pid);
+    if (p && !p.done) {
+      p.pct = Math.min(100, m.pct);
+      if (p.pct >= 100) { finish(p, m.time); broadcast({ t: "state", players }); }
+    }
+  }
+}
+
+function broadcast(obj) { conns.forEach(c => c.open && c.send(obj)); }
+
+function sendLobby() {
+  const l = players.map(p => ({ id: p.id, name: p.name }));
+  broadcast({ t: "lobby", players: l });
+  renderLobby(l);
+}
+
+function finish(p, time) {
+  p.place = players.filter(x => x.done).length + 1;
+  p.done = true; p.pct = 100; p.time = time;
+}
+
+function startGame() {
+  text = TEXTS[Math.floor(Math.random() * TEXTS.length)];
+  players = players.filter(p => !p.bot);
+  players.forEach(p => { p.pct = 0; p.done = false; p.place = 0; p.time = 0; });
+  if ($("botsChk").checked) {
+    BOTS.forEach((b, i) => players.push({
+      id: "b" + i, name: b.name, bot: true, pct: 0, done: false, place: 0,
+      cps: b.cps * (0.85 + Math.random() * 0.3)
+    }));
+  }
+  broadcast({ t: "start", text, players });
+  beginLocal();
+}
+
+function hostTick() {
+  players.forEach(p => {
+    if (!p.bot || p.done) return;
+    p.pct += (p.cps * (0.7 + Math.random() * 0.6) * 0.1) / text.length * 100;
+    if (p.pct >= 100) finish(p, (performance.now() - startTime) / 1000);
+  });
+  broadcast({ t: "state", players });
+  renderTrack();
+  if (players.filter(p => !p.bot).every(p => p.done)) clearInterval(tickTimer);
+}
+
+/* ---------- Сеть: гость ---------- */
+function joinRoom() {
+  const code = $("code").value.trim();
+  if (code.length !== 4) { setStatus("Введи 4 цифры кода"); return; }
+  if (peer) peer.destroy();
+  isHost = false;
+  setStatus("Подключаемся...");
+  peer = new Peer();
+  peer.on("open", () => {
+    hostConn = peer.connect("tsprint-" + code, { reliable: true });
+    hostConn.on("open", () => {
+      hostConn.send({ t: "hello", name: myName() });
+      showRoom(code);
+    });
+    hostConn.on("data", guestGot);
+    hostConn.on("close", () => { alert("Хозяин комнаты отключился"); location.reload(); });
+  });
+  peer.on("error", e => setStatus(e.type === "peer-unavailable"
+    ? "Комната не найдена. Проверь код." : "Ошибка: " + e.type));
+}
+
+function guestGot(m) {
+  if (m.t === "welcome") myId = m.id;
+  else if (m.t === "busy") { setStatus("Игра уже идёт, подожди."); }
+  else if (m.t === "lobby") renderLobby(m.players);
+  else if (m.t === "start") { text = m.text; players = m.players; beginLocal(); }
+  else if (m.t === "state") {
+    players = m.players;
+    renderTrack();
+    const me = players.find(p => p.id === myId);
+    if (me && me.done && !shown) showResult();
+  }
+}
+
+/* ---------- Экраны ---------- */
+function showRoom(code) {
+  $("connectBox").classList.add("hidden");
+  $("roomBox").classList.remove("hidden");
+  $("roomCode").textContent = code;
+  setStatus("");
+  if (isHost) { $("startBtn").classList.remove("hidden"); $("botsLabel").classList.remove("hidden"); }
+  else $("waitMsg").classList.remove("hidden");
+}
+
+function renderLobby(list) {
+  $("plist").innerHTML = "<b>В комнате:</b>" + list.map(p => `<div>• ${esc(p.name)}</div>`).join("");
+}
+
+function renderTrack() {
+  $("track").innerHTML = players.map(p => {
+    const cls = p.id === myId ? "me" : (p.bot ? "bot" : "friend");
+    const pct = Math.min(100, p.pct);
+    return `<div class="row ${cls}"><span class="name">${esc(p.name)}</span>
+      <div class="bar"><div class="fill" style="width:${pct}%"></div></div>
+      <span class="pct">${Math.floor(pct)}%</span></div>`;
+  }).join("");
 }
 
 function renderText(typed) {
@@ -88,94 +234,77 @@ function renderText(typed) {
   while (correct < typed.length && typed[correct] === text[correct]) correct++;
   let html = "";
   for (let i = 0; i < text.length; i++) {
-    const ch = text[i] === " " ? "&nbsp;" : text[i];
+    const ch = text[i] === " " ? "&nbsp;" : esc(text[i]);
     let cls = "";
     if (i < correct) cls = "ok";
     else if (i < typed.length) cls = "bad";
     else if (i === typed.length) cls = "cur";
     html += `<span class="${cls}">${ch}</span>`;
   }
-  textEl.innerHTML = html;
+  $("text").innerHTML = html;
   return correct;
 }
 
-function startGame() {
-  text = TEXTS[Math.floor(Math.random() * TEXTS.length)];
-  players = [{ name: "Ты", isMe: true, progress: 0, done: false },
-    ...BOTS.map(b => ({
-      name: b.name, isMe: false, progress: 0, done: false,
-      cps: b.cps * (0.85 + Math.random() * 0.3)
-    }))];
-  finishOrder = [];
-  resultEl.textContent = "";
-  buildTrack();
-  renderText("");
-  inputEl.value = "";
-  inputEl.disabled = true;
-  startBtn.style.display = "none";
-  clearInterval(timer);
-
+/* ---------- Игра ---------- */
+function beginLocal() {
+  go = false; shown = false;
+  clearInterval(tickTimer);
+  $("lobby").classList.add("hidden");
+  $("game").classList.remove("hidden");
+  $("result").textContent = "";
+  $("againBtn").classList.add("hidden");
+  $("input").value = ""; $("input").disabled = true;
+  renderTrack(); renderText("");
   let count = 3;
-  infoEl.textContent = count;
+  $("info").textContent = count;
   const cd = setInterval(() => {
     count--;
-    if (count > 0) { infoEl.textContent = count; return; }
+    if (count > 0) { $("info").textContent = count; return; }
     clearInterval(cd);
-    infoEl.textContent = "ПИШИ!";
-    inputEl.disabled = false;
-    inputEl.focus();
-    running = true;
-    startTime = performance.now();
-    timer = setInterval(tick, 100);
+    $("info").textContent = "ПИШИ!";
+    $("input").disabled = false; $("input").focus();
+    go = true; startTime = performance.now();
+    if (isHost) tickTimer = setInterval(hostTick, 100);
   }, 1000);
 }
 
-function tick() {
-  const t = (performance.now() - startTime) / 1000;
-  players.forEach((p, i) => {
-    if (p.isMe || p.done) return;
-    // скорость бота слегка «плавает», как у живого человека
-    p.progress += (p.cps * (0.7 + Math.random() * 0.6) * 0.1) / text.length * 100;
-    if (p.progress >= 100) finish(p, i);
-    else setProgress(i, p.progress);
-  });
-  const me = players[0];
-  if (!me.done) infoEl.textContent = Math.floor(t) + " сек";
-}
-
-function finish(p, i) {
-  p.done = true;
-  p.progress = 100;
-  setProgress(i, 100);
-  finishOrder.push(p);
-  if (p.isMe) endGame();
-}
-
-function endGame() {
-  running = false;
-  clearInterval(timer);
-  inputEl.disabled = true;
-  const t = (performance.now() - startTime) / 1000;
-  const place = finishOrder.indexOf(players[0]) + 1;
+function showResult() {
+  shown = true; go = false;
+  $("input").disabled = true;
+  const me = players.find(p => p.id === myId);
+  const t = me.time || (performance.now() - startTime) / 1000;
   const wpm = Math.round((text.length / 5) / (t / 60));
-  const medal = ["🥇", "🥈", "🥉"][place - 1] || "😅";
-  resultEl.innerHTML = `${medal} Ты занял ${place} место из ${players.length}<br>
+  const medal = ["🥇", "🥈", "🥉"][me.place - 1] || "😅";
+  $("result").innerHTML = `${medal} Ты занял ${me.place} место из ${players.length}<br>
     Скорость: ${wpm} сл/мин, время: ${t.toFixed(1)} сек`;
-  infoEl.textContent = "Финиш!";
-  startBtn.textContent = "Играть снова";
-  startBtn.style.display = "block";
+  $("info").textContent = "Финиш!";
+  if (isHost) $("againBtn").classList.remove("hidden");
 }
 
-inputEl.addEventListener("input", () => {
-  if (!running) return;
-  const correct = renderText(inputEl.value);
+$("input").addEventListener("input", () => {
+  if (!go) return;
+  const me = players.find(p => p.id === myId);
+  if (!me || me.done) return;
+  const correct = renderText($("input").value);
   const pct = correct / text.length * 100;
-  players[0].progress = pct;
-  setProgress(0, pct);
-  if (correct === text.length) finish(players[0], 0);
+  const t = (performance.now() - startTime) / 1000;
+  me.pct = pct;
+  if (isHost) {
+    if (correct === text.length) {
+      finish(me, t);
+      broadcast({ t: "state", players });
+      showResult();
+    }
+  } else {
+    hostConn.send({ t: "prog", pct, time: t });
+  }
+  renderTrack();
 });
 
-startBtn.addEventListener("click", startGame);
+$("createBtn").addEventListener("click", createRoom);
+$("joinBtn").addEventListener("click", joinRoom);
+$("startBtn").addEventListener("click", startGame);
+$("againBtn").addEventListener("click", startGame);
 </script>
 </body>
 </html>
